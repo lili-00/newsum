@@ -12,7 +12,7 @@ async def get_user_by_email(db: AsyncSession, email: str) -> models.User | None:
     return result.scalar_one_or_none()
 
 
-async def create_db_user(db: AsyncSession, user: user.EmailUserCreate) -> models.User:
+async def create_db_user(db: AsyncSession, user: user.EmailSignupRequest) -> models.User:
     """Creates a new user in the database."""
     # Hash the password before saving
     hashed_password = auth_helper.get_password_hash(user.password)
