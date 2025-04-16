@@ -1,16 +1,14 @@
 from fastapi import FastAPI
-from .routers import auth_router
+from .routers import auth_router, summary_router
+from .helpers.summary_helper import lifespan
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router.router)
+app.include_router(summary_router.router)
 
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "This is newsum api"}
 
-
-@app.get("/hello/{name}")
-async def say_hello(name: str):
-    return {"message": f"Hello {name}"}

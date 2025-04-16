@@ -26,7 +26,7 @@ class Summary(Base):
     generation_timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     period = Column(String(10), nullable=False)  # 'morning' or 'evening' or 'single'
     summary_text = Column(Text, nullable=False)
-    target_date = Column(Date, nullable=False, default=date.today)
+    target_date = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     reference_url = Column(String(2048), nullable=True)  # Single URL, nullable
 
     # Define index explicitly if preferred over doing it via SQL
