@@ -46,5 +46,8 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change_this_super_secret_key_in_pr
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
-# --- Add other configurations here as needed ---
-
+# --- News data api ---
+NEWS_API_URL = os.getenv("NEWS_API_URL")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+NEWS_COUNTRY = os.getenv("NEWS_COUNTRY")
+PRIORITY_DOMAIN = os.getenv("PRIORITY_DOMAIN")

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # --- Crucial: Ensure models are imported BEFORE Base is used extensively ---
 # Import Base first (assuming it's defined in models/base.py)
-from app.models.base import Base
+from app.models.models import Base
 # Import all modules containing models that inherit from Base
 # This registers the models with Base.metadata
 # --- End of crucial imports ---

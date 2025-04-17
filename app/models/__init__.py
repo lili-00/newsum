@@ -1,1 +1,1 @@
-from .models import User, Summary
+from .models import User, ArticleRecord
