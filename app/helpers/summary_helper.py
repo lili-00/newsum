@@ -16,6 +16,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy import select, exists, desc  # Added desc import
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # --- Application Imports (Adjust paths as necessary) ---
@@ -266,11 +267,25 @@ async def analyze_news_data() -> List[Dict[str, Any]]:
 async def save_processed_articles(db: AsyncSession, processed_articles: List[Dict[str, Any]]):
     """
     Saves a list of processed article data dictionaries to the database.
-    Checks for existing articles based on article_id to avoid duplicates.
+    Checks for existing articles based on article_id to avoid duplicates,
+    and handles potential IntegrityErrors during commit due to race conditions.
     """
     articles_added_count = 0
     articles_skipped_count = 0
+    articles_to_add = []  # Keep track of records added to the session
     logger.info(f"Attempting to save {len(processed_articles)} processed articles to database.")
+
+    existing_article_ids = set()
+    # Optional optimization: Fetch all potentially existing IDs in one query
+    # This reduces DB load compared to checking one by one inside the loop,
+    # but might fetch more than needed if processed_articles is small.
+    # Comment this section out if you prefer the per-article check inside the loop.
+    potential_ids = [a.get("article_id") for a in processed_articles if a.get("article_id")]
+    if potential_ids:
+        id_check_stmt = select(ArticleRecord.article_id).where(ArticleRecord.article_id.in_(potential_ids))
+        existing_results = await db.execute(id_check_stmt)
+        existing_article_ids = set(existing_results.scalars().all())
+        logger.debug(f"Pre-checked existence for {len(potential_ids)} IDs, found {len(existing_article_ids)} existing.")
 
     for article_data in processed_articles:
         article_id = article_data.get("article_id")
@@ -280,20 +295,23 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
             continue
 
         try:
-            # --- ADDED CHECK: See if article already exists ---
+            # --- Check against pre-fetched set (or query DB if not pre-fetching) ---
+            # article_exists = article_id in existing_article_ids # Use this if pre-fetching
+            # --- OR ---
+            # Check if article already exists (if not pre-fetching)
             stmt = select(exists().where(ArticleRecord.article_id == article_id))
             article_exists = await db.scalar(stmt)
+            # --- End Check Choice ---
 
             if article_exists:
-                logger.debug(f"Article ID {article_id} already exists in DB. Skipping.")
+                if article_id not in existing_article_ids:  # Log only if not already known from pre-fetch
+                    logger.debug(f"Article ID {article_id} already exists in DB. Skipping.")
                 articles_skipped_count += 1
                 continue
-            # --- END ADDED CHECK ---
+            # --- END CHECK ---
 
-            # --- If article does not exist, proceed with validation and insertion ---
-            # Validate data with Pydantic
+            # --- If article does not exist, proceed with validation and creation ---
             try:
-                # Initialize Pydantic model using alias 'pubDate' for input string
                 pydantic_article = ArticleForProcessing(
                     article_id=article_id,
                     title=article_data.get('title'),
@@ -302,10 +320,9 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                     keywords=article_data.get('keywords'),
                     summary=article_data.get('summary'),
                     source_name=article_data.get('source_name'),
-                    pubDate=article_data.get('pubDate'),  # Pass input string via alias
-                    summary_generated_at=article_data.get('summary_generated_at')  # Pass timestamp directly
+                    pubDate=article_data.get('pubDate'),
+                    summary_generated_at=article_data.get('summary_generated_at')
                 )
-                # Create SQLAlchemy model instance using the validated Pydantic object attributes
                 new_record = ArticleRecord(
                     article_id=pydantic_article.article_id,
                     title=pydantic_article.title,
@@ -314,7 +331,7 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                     keywords=pydantic_article.keywords,
                     summary=pydantic_article.summary,
                     source_name=pydantic_article.source_name,
-                    publication_date=pydantic_article.publication_date, # Use the attribute holding the parsed datetime
+                    publication_date=pydantic_article.publication_date,
                     summary_generated_at=pydantic_article.summary_generated_at
                 )
             except ValidationError as val_err:
@@ -327,30 +344,51 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                 articles_skipped_count += 1
                 continue
 
-            # Add the new record to the session
-            db.add(new_record)
+            # Add the new record to the list to be added to session
+            articles_to_add.append(new_record)
             articles_added_count += 1
-            logger.debug(f"Added article ID {article_id} to session for insertion.")
+            logger.debug(f"Prepared article ID {article_id} for insertion.")
 
         except Exception as e:
-            # Catch errors during the existence check or other unexpected issues
             logger.error(f"Error processing article ID {article_id} for saving: {e}", exc_info=True)
             articles_skipped_count += 1
-            # Explicitly continue to the next article on error
             continue
 
-    # Commit changes if any articles were added
-    if articles_added_count > 0:
+    # Add all prepared records to the session
+    if articles_to_add:
+        db.add_all(articles_to_add)
+        logger.info(f"Added {len(articles_to_add)} new article records to the session.")
+    else:
+        logger.info("No new articles qualified for adding to the session.")
+
+    # Commit changes if any articles were added to the session
+    if articles_added_count > 0 and articles_to_add:  # Check both to be safe
         try:
             await db.commit()
-            logger.info(f"Successfully committed {articles_added_count} new articles to the database. Skipped {articles_skipped_count}.")
-        except Exception as commit_err:
-            # Catch potential commit errors (like race conditions if another process inserted concurrently)
-            logger.error(f"Database commit failed: {commit_err}", exc_info=True)
+            logger.info(
+                f"Successfully committed {articles_added_count} new articles to the database. Skipped {articles_skipped_count}.")
+        # --- ADDED HANDLING FOR COMMIT-TIME IntegrityError ---
+        except IntegrityError as commit_err:
+            # Check if it's the specific unique violation error we expect
+            # The specific error code for unique_violation in PostgreSQL is '23505'
+            if isinstance(commit_err.orig, Exception) and getattr(commit_err.orig, 'sqlstate', None) == '23505':
+                logger.warning(
+                    f"Database commit failed likely due to race condition (unique constraint violation): {commit_err.orig}. Rolling back.")
+            else:
+                # Log other IntegrityErrors more severely
+                logger.error(f"Database commit failed due to IntegrityError: {commit_err}", exc_info=True)
             await db.rollback()
             logger.info("Database transaction rolled back due to commit error.")
+        # --- END HANDLING ---
+        except Exception as commit_err:
+            # Catch other potential commit errors
+            logger.error(f"Database commit failed unexpectedly: {commit_err}", exc_info=True)
+            await db.rollback()
+            logger.info("Database transaction rolled back due to unexpected commit error.")
     else:
-        logger.info(f"No new articles were added in this batch. Skipped {articles_skipped_count}.")
+        # No need to commit if nothing was added
+        logger.info(
+            f"No new articles were added to the session in this batch. Total Skipped: {articles_skipped_count}.")
 
 
 # === Scheduler Job Functions ===
@@ -396,7 +434,7 @@ def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[
     """Adds the hourly processing job and optionally daily jobs."""
 
     # --- Add Hourly Job ---
-    past_minutes = 59
+    past_minutes = 45
     try:
         scheduler.add_job(
             hourly_job_wrapper,
