@@ -396,7 +396,7 @@ def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[
     """Adds the hourly processing job and optionally daily jobs."""
 
     # --- Add Hourly Job ---
-    past_minutes = 54
+    past_minutes = 59
     try:
         scheduler.add_job(
             hourly_job_wrapper,
