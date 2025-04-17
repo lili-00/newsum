@@ -292,7 +292,7 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
             # Validate data with Pydantic
             try:
                 # Initialize Pydantic model using alias 'pubDate' for input string
-                pydantic_article = ProcessedArticle(
+                pydantic_article = ArticleForProcessing(
                     article_id=article_id,
                     title=article_data.get('title'),
                     reference_url=article_data.get('reference_url'),
