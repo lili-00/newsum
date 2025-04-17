@@ -15,22 +15,20 @@ from pydantic import ValidationError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy import select, exists, desc # Added desc import
+from sqlalchemy import select, exists, desc  # Added desc import
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # --- Application Imports (Adjust paths as necessary) ---
-from app import config # Your application config
-from app.database import get_db_session # Your DB session dependency
-from app.models.models import ArticleRecord # Your SQLAlchemy model
-from app.models.summary import ArticleForProcessing # Your Pydantic schema for validation/response
-
+from app import config  # Your application config
+from app.database import get_db_session  # Your DB session dependency
+from app.models.models import ArticleRecord  # Your SQLAlchemy model
+from app.models.summary import ArticleForProcessing  # Your Pydantic schema for validation/response
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
 if not logger.hasHandlers():
     # Configure basic logging if no handlers are configured elsewhere
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 
 # --- Global Variables & Configuration ---
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -133,7 +131,8 @@ async def generate_summary_from_text(text_content: str, title: Optional[str] = N
         logger.info(f"Successfully generated summary for: {title if title else 'N/A'}")
         return summary
     except Exception as e:
-        logger.error(f"Error calling Gemini API for summary generation (article: {title if title else 'N/A'}): {e}", exc_info=True)
+        logger.error(f"Error calling Gemini API for summary generation (article: {title if title else 'N/A'}): {e}",
+                     exc_info=True)
         return None
 
 
@@ -149,7 +148,7 @@ async def fetch_latest_news_data():
         "country": config.NEWS_COUNTRY,
         "prioritydomain": config.PRIORITY_DOMAIN,
     }
-    url = config.NEWS_API_URL # Ensure this is set in your config
+    url = config.NEWS_API_URL  # Ensure this is set in your config
 
     async with httpx.AsyncClient() as client:
         try:
@@ -161,14 +160,15 @@ async def fetch_latest_news_data():
             return news_data
         # ... (rest of error handling as before) ...
         except httpx.HTTPStatusError as exc:
-            logger.error(f"HTTP error fetching latest news list: {exc.response.status_code} for URL {exc.request.url!r}")
+            logger.error(
+                f"HTTP error fetching latest news list: {exc.response.status_code} for URL {exc.request.url!r}")
             raise HTTPException(status_code=exc.response.status_code, detail="Error fetching news list from source.")
         except httpx.RequestError as exc:
             logger.error(f"Request error fetching latest news list: {exc}")
             raise HTTPException(status_code=503, detail="Network error fetching news list from source.")
         except json.JSONDecodeError as exc:
-             logger.error(f"Error decoding JSON from news list API: {exc}")
-             raise HTTPException(status_code=500, detail="Invalid JSON response from news list source.")
+            logger.error(f"Error decoding JSON from news list API: {exc}")
+            raise HTTPException(status_code=500, detail="Invalid JSON response from news list source.")
         except Exception as exc:
             logger.error(f"Unexpected error fetching latest news list: {exc}", exc_info=True)
             raise HTTPException(status_code=500, detail="Unexpected error fetching latest news list.")
@@ -195,7 +195,6 @@ async def analyze_news_data() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Unexpected error during initial latest news list fetch: {e}", exc_info=True)
         return []
-
 
     articles_to_process = news_data.get('results', [])
     logger.info(f"Starting analysis for {len(articles_to_process)} articles fetched from the latest news feed.")
@@ -228,21 +227,23 @@ async def analyze_news_data() -> List[Dict[str, Any]]:
         if html_content:
             article_text_to_summarize = extract_text_from_html(html_content)
             if not article_text_to_summarize:
-                logger.warning(f"Could not extract text from {link} for article ID {article_id}. Falling back to description.")
+                logger.warning(
+                    f"Could not extract text from {link} for article ID {article_id}. Falling back to description.")
                 if description: article_text_to_summarize = description
         else:
-             logger.warning(f"Failed to fetch content from {link} for article ID {article_id}. Falling back to description.")
-             if description: article_text_to_summarize = description
+            logger.warning(
+                f"Failed to fetch content from {link} for article ID {article_id}. Falling back to description.")
+            if description: article_text_to_summarize = description
 
         if article_text_to_summarize:
             generated_summary = await generate_summary_from_text(article_text_to_summarize, title)
             if generated_summary:
                 summary_generated_at_ts = datetime.now(timezone.utc)
             else:
-                logger.warning(f"Failed to generate summary for article ID {article_id} (used {'description' if not html_content or not article_text else 'fetched content'}).")
+                logger.warning(
+                    f"Failed to generate summary for article ID {article_id} (used {'description' if not html_content or not article_text_to_summarize else 'fetched content'}).")
         else:
-             logger.warning(f"No content (fetched or description) available to summarize for article ID {article_id}.")
-
+            logger.warning(f"No content (fetched or description) available to summarize for article ID {article_id}.")
 
         # 4. Structure the result
         processed_article_data = {
@@ -253,7 +254,7 @@ async def analyze_news_data() -> List[Dict[str, Any]]:
             "keywords": keywords,
             "summary": generated_summary,
             "source_name": article.get("source_name"),
-            "pubDate": pubDate_str, # Keep as string for Pydantic/DB layer to handle
+            "pubDate": pubDate_str,  # Keep as string for Pydantic/DB layer to handle
             "summary_generated_at": summary_generated_at_ts
         }
         processed_articles.append(processed_article_data)
@@ -300,8 +301,8 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                     keywords=article_data.get('keywords'),
                     summary=article_data.get('summary'),
                     source_name=article_data.get('source_name'),
-                    pubDate=article_data.get('pubDate'), # Pass input string via alias
-                    summary_generated_at=article_data.get('summary_generated_at') # Pass timestamp directly
+                    pubDate=article_data.get('pubDate'),  # Pass input string via alias
+                    summary_generated_at=article_data.get('summary_generated_at')  # Pass timestamp directly
                 )
                 # Create SQLAlchemy model instance using the validated Pydantic object attributes
                 new_record = ArticleRecord(
@@ -323,7 +324,8 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                 articles_skipped_count += 1
                 continue
             except Exception as map_err:
-                logger.error(f"Error mapping data for article ID {article_id}: {map_err}. Skipping save.", exc_info=True)
+                logger.error(f"Error mapping data for article ID {article_id}: {map_err}. Skipping save.",
+                             exc_info=True)
                 articles_skipped_count += 1
                 continue
 
@@ -347,6 +349,7 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
     else:
         logger.info(f"No new articles were added in this batch. Skipped {articles_skipped_count}.")
 
+
 # === Scheduler Job Functions ===
 
 async def process_and_save_hourly_news(db: AsyncSession):
@@ -355,7 +358,7 @@ async def process_and_save_hourly_news(db: AsyncSession):
     """
     logger.info("Starting hourly news processing task...")
     try:
-        processed_articles_list = await analyze_news_data() # Call analysis function
+        processed_articles_list = await analyze_news_data()  # Call analysis function
         if processed_articles_list:
             await save_processed_articles(db=db, processed_articles=processed_articles_list)
         else:
@@ -363,13 +366,13 @@ async def process_and_save_hourly_news(db: AsyncSession):
         logger.info("Hourly news processing task finished.")
     except Exception as e:
         logger.error(f"Error during hourly news processing: {e}", exc_info=True)
-        await db.rollback() # Ensure rollback on failure
+        await db.rollback()  # Ensure rollback on failure
 
 
 async def hourly_job_wrapper():
     """Wrapper to get DB session for the hourly job."""
     logger.info("Scheduler triggered hourly job...")
-    session_gen = get_db_session() # Assumes this yields an AsyncSession
+    session_gen = get_db_session()  # Assumes this yields an AsyncSession
     session: AsyncSession = await session_gen.__anext__()
     try:
         await process_and_save_hourly_news(db=session)
@@ -384,25 +387,27 @@ async def hourly_job_wrapper():
 
 # === Scheduler Setup ===
 
-sum_scheduler = AsyncIOScheduler(timezone=timezone.utc) # Use UTC for scheduler internal timezone
+sum_scheduler = AsyncIOScheduler(timezone=timezone.utc)  # Use UTC for scheduler internal timezone
+
 
 def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[str]] = None):
     """Adds the hourly processing job and optionally daily jobs."""
 
     # --- Add Hourly Job ---
-    past_minutes = 59
+    past_minutes = 8
     try:
         scheduler.add_job(
             hourly_job_wrapper,
-            trigger=CronTrigger(minute=past_minutes), # Run at 5 minutes past every hour UTC
+            trigger=CronTrigger(minute=past_minutes),  # Run at 5 minutes past every hour UTC
             id='hourly_article_processing',
             name='Process Recent Articles Hourly',
             replace_existing=True,
-            misfire_grace_time=600 # Allow 10 minutes grace
+            misfire_grace_time=600  # Allow 10 minutes grace
         )
         logger.info(f"Successfully added HOURLY article processing job (runs HH:{past_minutes} UTC).")
     except Exception as e:
         logger.error(f"Could not add HOURLY job: {e}", exc_info=True)
+
 
 # === FastAPI Lifespan Management ===
 @asynccontextmanager
@@ -425,7 +430,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error during scheduler setup or start: {e}", exc_info=True)
 
-    yield # Application runs here
+    yield  # Application runs here
 
     logger.info("Application shutdown: Shutting down scheduler...")
     try:
