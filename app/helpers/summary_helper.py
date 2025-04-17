@@ -267,7 +267,6 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
     """
     Saves a list of processed article data dictionaries to the database.
     Checks for existing articles based on article_id to avoid duplicates.
-    (Corrected mapping from Pydantic model)
     """
     articles_added_count = 0
     articles_skipped_count = 0
@@ -281,7 +280,7 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
             continue
 
         try:
-            # Check if article already exists
+            # --- ADDED CHECK: See if article already exists ---
             stmt = select(exists().where(ArticleRecord.article_id == article_id))
             article_exists = await db.scalar(stmt)
 
@@ -289,7 +288,9 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                 logger.debug(f"Article ID {article_id} already exists in DB. Skipping.")
                 articles_skipped_count += 1
                 continue
+            # --- END ADDED CHECK ---
 
+            # --- If article does not exist, proceed with validation and insertion ---
             # Validate data with Pydantic
             try:
                 # Initialize Pydantic model using alias 'pubDate' for input string
@@ -313,10 +314,7 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                     keywords=pydantic_article.keywords,
                     summary=pydantic_article.summary,
                     source_name=pydantic_article.source_name,
-                    # --- CORRECTED LINE ---
-                    # Use the attribute holding the parsed datetime from Pydantic
-                    publication_date=pydantic_article.publication_date,
-                    # --- END CORRECTION ---
+                    publication_date=pydantic_article.publication_date, # Use the attribute holding the parsed datetime
                     summary_generated_at=pydantic_article.summary_generated_at
                 )
             except ValidationError as val_err:
@@ -329,20 +327,25 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
                 articles_skipped_count += 1
                 continue
 
+            # Add the new record to the session
             db.add(new_record)
             articles_added_count += 1
-            logger.debug(f"Added article ID {article_id} to session.")
+            logger.debug(f"Added article ID {article_id} to session for insertion.")
 
         except Exception as e:
+            # Catch errors during the existence check or other unexpected issues
             logger.error(f"Error processing article ID {article_id} for saving: {e}", exc_info=True)
             articles_skipped_count += 1
+            # Explicitly continue to the next article on error
+            continue
 
     # Commit changes if any articles were added
     if articles_added_count > 0:
         try:
             await db.commit()
-            logger.info(f"Successfully saved {articles_added_count} new articles. Skipped {articles_skipped_count}.")
+            logger.info(f"Successfully committed {articles_added_count} new articles to the database. Skipped {articles_skipped_count}.")
         except Exception as commit_err:
+            # Catch potential commit errors (like race conditions if another process inserted concurrently)
             logger.error(f"Database commit failed: {commit_err}", exc_info=True)
             await db.rollback()
             logger.info("Database transaction rolled back due to commit error.")
@@ -351,7 +354,6 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
 
 
 # === Scheduler Job Functions ===
-
 async def process_and_save_hourly_news(db: AsyncSession):
     """
     Orchestrates the hourly task: analyze the LATEST news and save results.
@@ -394,7 +396,7 @@ def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[
     """Adds the hourly processing job and optionally daily jobs."""
 
     # --- Add Hourly Job ---
-    past_minutes = 18
+    past_minutes = 54
     try:
         scheduler.add_job(
             hourly_job_wrapper,
