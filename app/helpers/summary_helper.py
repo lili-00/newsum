@@ -3,7 +3,7 @@ import logging
 import os
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Dict, Any, Optional, List
+from typing import Annotated, Dict, Any, Optional, List, Set
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from contextlib import asynccontextmanager
 
@@ -22,8 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # --- Application Imports (Adjust paths as necessary) ---
 from app import config  # Your application config
 from app.database import get_db_session  # Your DB session dependency
-from app.models.models import ArticleRecord  # Your SQLAlchemy model
-from app.models.summary import ArticleForProcessing  # Your Pydantic schema for validation/response
+from app.helpers.gnews_helper import analyze_gnews_data
+from app.helpers.summary_utils import fetch_page_content, extract_text_from_html, generate_summary_from_text
+from app.models.models import ArticleRecord, GNewsArticleSummary  # Your SQLAlchemy model
+from app.models.summary import ArticleForProcessing, GNewsSummaryData  # Your Pydantic schema for validation/response
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
@@ -49,92 +51,6 @@ MODEL_NAME = config.GEMINI_MODEL_NAME
 
 
 # === Core Helper Functions ===
-
-async def fetch_page_content(link: str) -> Optional[str]:
-    """
-    Fetches the HTML content of a given URL.
-    Returns the text content on success, None on failure.
-    """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    timeout = httpx.Timeout(15.0, connect=10.0)
-    async with httpx.AsyncClient(headers=headers, timeout=timeout, follow_redirects=True) as client:
-        try:
-            logger.info(f"Attempting to fetch content from: {link}")
-            response = await client.get(link)
-            response.raise_for_status()
-            content_type = response.headers.get('content-type', '').lower()
-            if 'html' in content_type:
-                logger.info(f"Successfully fetched HTML content from: {link}")
-                return response.text
-            else:
-                logger.warning(f"Fetched content from {link} is not HTML (type: {content_type}). Skipping.")
-                return None
-        except httpx.HTTPStatusError as exc:
-            logger.error(f"HTTP error {exc.response.status_code} fetching {link}: {exc}")
-            return None
-        except httpx.RequestError as exc:
-            logger.error(f"Request error fetching {link}: {exc}")
-            return None
-        except Exception as exc:
-            logger.error(f"Unexpected error fetching {link}: {exc}", exc_info=True)
-            return None
-
-
-def extract_text_from_html(html_content: str) -> str:
-    """
-    Extracts meaningful text content from HTML using BeautifulSoup.
-    """
-    if not html_content: return ""
-    try:
-        soup = BeautifulSoup(html_content, 'lxml')
-        for script_or_style in soup(["script", "style"]):
-            script_or_style.decompose()
-        main_content = soup.find('article') or soup.find('main') or soup.find(role='main')
-        paragraphs = main_content.find_all('p') if main_content else soup.find_all('p')
-        text_parts = [para.get_text(strip=True) for para in paragraphs]
-        full_text = "\n".join(part for part in text_parts if part)
-        full_text = full_text.replace('\xa0', ' ')
-        return full_text.strip()
-    except Exception as e:
-        logger.error(f"Error parsing HTML with BeautifulSoup: {e}", exc_info=True)
-        return ""
-
-
-async def generate_summary_from_text(text_content: str, title: Optional[str] = None) -> Optional[str]:
-    """
-    Uses Gemini to generate a summary for the provided text content.
-    """
-    if not text_content or not text_content.strip():
-        logger.warning("Cannot generate summary: Input text content is empty.")
-        return None
-    if not genai_configured:
-        logger.error("Cannot generate summary: Google API Key not configured or configuration failed.")
-        return None
-
-    prompt = f"""
-    Please provide a concise and neutral summary (around 200-350 words) of the following news article content. Focus on the main points and key information presented in the text.
-    **Important:** The summary itself is the ONLY respond. Do not include any introductory text, explanations, markdown formatting (like ```json), or code fences before or after the JSON structure itself. The entire response must be only the summary.
-
-    Article Title (for context, if available): {title if title else 'N/A'}
-
-    Article Content to Summarize:
-    ---
-    {text_content}
-    ---
-    """
-    try:
-        logger.info(f"Generating summary with Gemini for article: {title if title else 'N/A'}")
-        model = genai.GenerativeModel(MODEL_NAME)
-        response = await model.generate_content_async(prompt, request_options={'timeout': 120})
-        summary = response.text.strip()
-        logger.info(f"Successfully generated summary for: {title if title else 'N/A'}")
-        return summary
-    except Exception as e:
-        logger.error(f"Error calling Gemini API for summary generation (article: {title if title else 'N/A'}): {e}",
-                     exc_info=True)
-        return None
 
 
 # === Data Fetching and Processing Functions ===
@@ -391,6 +307,161 @@ async def save_processed_articles(db: AsyncSession, processed_articles: List[Dic
             f"No new articles were added to the session in this batch. Total Skipped: {articles_skipped_count}.")
 
 
+async def save_processed_gnews_articles(db: AsyncSession, processed_articles: List[Dict[str, Any]]):
+    """
+    Saves a list of processed article data dictionaries to the database
+    using the GNewsArticleSummary model. Checks for existing articles
+    based on the unique 'url' field to avoid duplicates, and handles potential
+    IntegrityErrors during commit due to race conditions or other constraints.
+
+    Args:
+        db: The AsyncSession instance.
+        processed_articles: A list of dictionaries, each representing an article's
+                           data matching the fields expected by GNewsSummaryData.
+
+    Returns:
+        A tuple containing (articles_added_count, articles_skipped_count).
+    """
+    articles_added_count = 0
+    articles_skipped_count = 0
+    articles_to_add: List[GNewsArticleSummary] = []  # List of SQLAlchemy objects
+    logger.info(
+        f"Attempting to save {len(processed_articles)} processed articles to table '{GNewsArticleSummary.__tablename__}'.")
+
+    existing_urls: Set[str] = set()
+    # --- Pre-fetch existing URLs (Optimization) ---
+    # Extract potential URLs ensuring they are strings before querying
+    potential_urls = []
+    for a in processed_articles:
+        url_val = a.get("url")
+        if isinstance(url_val, str) and url_val:
+            potential_urls.append(url_val)
+        elif url_val:
+            # Log if URL is not a string, might indicate an issue upstream
+            logger.warning(f"Article data contains non-string URL: {url_val}. Skipping pre-fetch check for this item.")
+
+    if potential_urls:
+        try:
+            # Query using the correct SQLAlchemy model and field
+            url_check_stmt = select(GNewsArticleSummary.url).where(GNewsArticleSummary.url.in_(potential_urls))
+            existing_results = await db.execute(url_check_stmt)
+            existing_urls = set(existing_results.scalars().all())
+            if existing_urls:
+                logger.debug(
+                    f"Pre-checked existence for {len(potential_urls)} URLs, found {len(existing_urls)} existing.")
+            else:
+                logger.debug(f"Pre-checked existence for {len(potential_urls)} URLs, none found existing.")
+        except Exception as fetch_err:
+            logger.error(f"Error pre-fetching existing article URLs: {fetch_err}. Proceeding without pre-fetch.",
+                         exc_info=True)
+            existing_urls = set()  # Reset on error
+
+    # --- Process each article dictionary ---
+    for article_data in processed_articles:
+        # --- Identify the article using URL ---
+        url_str = article_data.get("url")  # Get the URL, likely as a string initially
+        if not isinstance(url_str, str) or not url_str:
+            # Log title if available for better identification of skipped item
+            title_preview = article_data.get('title', 'N/A')[:50]
+            logger.warning(
+                f"Skipping article data with missing or invalid URL (Title: '{title_preview}...'). URL value: {url_str}")
+            articles_skipped_count += 1
+            continue
+
+        try:
+            # --- Check for Duplicates using URL ---
+            if url_str in existing_urls:
+                # Already known to exist from pre-fetch
+                articles_skipped_count += 1
+                continue
+            # --- Fallback DB Check (Optional - if not pre-fetching or as double check) ---
+            # Uncomment if needed
+            # stmt = select(exists().where(GNewsArticleSummary.url == url_str))
+            # article_exists_in_db = await db.scalar(stmt)
+            # if article_exists_in_db:
+            #     logger.debug(f"Article URL {url_str} already exists in DB (checked individually). Skipping.")
+            #     articles_skipped_count += 1
+            #     continue
+            # --- End Fallback Check ---
+
+            # --- If article URL does not exist, proceed with validation and creation ---
+            try:
+                # 1. Validate data using Pydantic model
+                # Ensure GNewsSummaryData includes summary & summary_generated_at fields
+                pydantic_article = GNewsSummaryData(**article_data)
+
+                # 2. Create SQLAlchemy model instance from validated Pydantic object
+                new_record = GNewsArticleSummary(
+                    # --- Existing Mappings ---
+                    title=pydantic_article.title,
+                    description=pydantic_article.description,
+                    url=str(pydantic_article.url),
+                    image_url=str(pydantic_article.image_url) if pydantic_article.image_url else None,
+                    published_at=pydantic_article.published_at,  # Pydantic ensures this is datetime
+                    source_name=pydantic_article.source_name,
+                    source_url=str(pydantic_article.source_url) if pydantic_article.source_url else None,
+                    # --- Add Missing Mappings ---
+                    summary=pydantic_article.summary,  # Add this line
+                    summary_generated_at=pydantic_article.summary_generated_at  # Add this line
+                    # --- End Add ---
+                )
+            except ValidationError as val_err:
+                title_preview = article_data.get('title', 'N/A')[:50]
+                logger.warning(
+                    f"Pydantic validation failed for article (URL: {url_str}, Title: '{title_preview}'): {val_err}. Skipping save.")
+                articles_skipped_count += 1
+                continue
+            except Exception as map_err:
+                # Catch broader errors during Pydantic/SQLAlchemy instantiation
+                title_preview = article_data.get('title', 'N/A')[:50]
+                logger.error(
+                    f"Error creating models for article (URL: {url_str}, Title: '{title_preview}'): {map_err}. Skipping save.",
+                    exc_info=True)
+                articles_skipped_count += 1
+                continue
+
+            # Add the new record to the list to be added to session
+            articles_to_add.append(new_record)
+            logger.debug(f"Prepared article (URL: {url_str}, Title: '{pydantic_article.title[:50]}...') for insertion.")
+
+        except Exception as e:
+            # Catch unexpected errors during the processing of a single article dict
+            title_preview = article_data.get('title', 'N/A')[:50]
+            logger.error(
+                f"Unexpected error processing article data (URL: {url_str}, Title: '{title_preview}...') for saving: {e}",
+                exc_info=True)
+            articles_skipped_count += 1
+            continue
+
+    # --- Add all prepared records to the session and commit ---
+    if articles_to_add:
+        logger.info(
+            f"Adding {len(articles_to_add)} new articles to the session for table '{GNewsArticleSummary.__tablename__}'.")
+        db.add_all(articles_to_add)
+        try:
+            await db.commit()
+            articles_added_count = len(articles_to_add)  # Count successfully committed articles
+            logger.info(f"Successfully committed {articles_added_count} new articles.")
+        except IntegrityError as int_err:
+            await db.rollback()
+            # IntegrityError likely due to unique constraint violation (URL) from race condition
+            logger.error(
+                f"Database integrity error during commit (likely duplicate URL race condition): {int_err}. Rolled back transaction.",
+                exc_info=False)  # exc_info=False is often enough for IntegrityError
+            articles_skipped_count += len(articles_to_add)
+            articles_added_count = 0
+        except Exception as commit_err:
+            await db.rollback()
+            logger.error(f"Error during database commit: {commit_err}. Rolled back transaction.", exc_info=True)
+            articles_skipped_count += len(articles_to_add)
+            articles_added_count = 0
+    else:
+        logger.info("No new articles were prepared for addition.")
+
+    logger.info(f"Article saving finished. Added: {articles_added_count}, Skipped: {articles_skipped_count}")
+    return articles_added_count, articles_skipped_count
+
+
 # === Scheduler Job Functions ===
 async def process_and_save_hourly_news(db: AsyncSession):
     """
@@ -407,6 +478,39 @@ async def process_and_save_hourly_news(db: AsyncSession):
     except Exception as e:
         logger.error(f"Error during hourly news processing: {e}", exc_info=True)
         await db.rollback()  # Ensure rollback on failure
+
+
+async def process_and_save_hourly_gnews(db: AsyncSession):
+    """
+    Orchestrates the hourly task: analyze the LATEST news and save results.
+    """
+    logger.info("Starting hourly news processing task...")
+    try:
+        processed_articles_list = await analyze_gnews_data()  # Call analysis function
+        if processed_articles_list:
+            await save_processed_gnews_articles(db=db, processed_articles=processed_articles_list)
+        else:
+            logger.info("Hourly task: No articles processed or returned from analysis.")
+        logger.info("Hourly news processing task finished.")
+    except Exception as e:
+        logger.error(f"Error during hourly news processing: {e}", exc_info=True)
+        await db.rollback()  # Ensure rollback on failure
+
+
+async def gnews_hourly_job_wrapper():
+    """Wrapper to get DB session for the hourly job."""
+    logger.info("Scheduler triggered hourly job...")
+    session_gen = get_db_session()  # Assumes this yields an AsyncSession
+    session: AsyncSession = await session_gen.__anext__()
+    try:
+        await process_and_save_hourly_gnews(db=session)
+    except Exception as job_err:
+        logger.error(f"Hourly job execution failed. Error: {job_err}", exc_info=True)
+    finally:
+        try:
+            await session_gen.aclose()
+        except Exception as close_err:
+            logger.error(f"Error closing DB session for hourly job: {close_err}", exc_info=True)
 
 
 async def hourly_job_wrapper():
@@ -434,11 +538,11 @@ def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[
     """Adds the hourly processing job and optionally daily jobs."""
 
     # --- Add Hourly Job ---
-    past_minutes = 45
+    past_minutes = 21
     try:
         scheduler.add_job(
-            hourly_job_wrapper,
-            trigger=CronTrigger(minute=past_minutes),  # Run at 5 minutes past every hour UTC
+            gnews_hourly_job_wrapper,
+            trigger=CronTrigger(minute=past_minutes, second=45),  # Run at 5 minutes past every hour UTC
             id='hourly_article_processing',
             name='Process Recent Articles Hourly',
             replace_existing=True,

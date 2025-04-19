@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, AnyUrl, Field, validator, ConfigDict
+from pydantic import BaseModel, AnyUrl, Field, validator, ConfigDict, HttpUrl
 
 logger = logging.getLogger(__name__)
 
@@ -85,3 +85,22 @@ class ArticleResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes = True # Reads directly from ORM object attributes
     )
+
+
+class GNewsSummaryData(BaseModel):
+    """Pydantic model representing processed article data."""
+    title: str = Field(..., description="The main title of the article.")
+    description: Optional[str] = Field(None, description="A short summary or description of the article.")
+    url: HttpUrl = Field(..., description="The canonical URL of the original article.")
+    image_url: Optional[HttpUrl] = Field(None, description="A URL for a relevant image associated with the article.")
+    published_at: datetime = Field(..., description="The UTC timestamp when the article was published.") # Pydantic handles parsing from string
+    source_name: Optional[str] = Field(None, description="The name of the news source (e.g., 'BBC News').") # Made optional to handle cases where it's missing
+    source_url: Optional[HttpUrl] = Field(None, description="The base URL of the news source (e.g., 'https://www.bbc.com/news').")
+    summary: Optional[str] = Field(None, description="An AI-generated or extracted summary of the article content.")
+
+    # --- Add summary timestamp field ---
+    summary_generated_at: Optional[datetime] = Field(None, description="The UTC timestamp when the summary was generated.")
+    # --- End Add ---
+
+    class Config:
+        from_attributes = True

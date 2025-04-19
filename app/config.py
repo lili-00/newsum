@@ -51,3 +51,10 @@ NEWS_API_URL = os.getenv("NEWS_API_URL")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 NEWS_COUNTRY = os.getenv("NEWS_COUNTRY")
 PRIORITY_DOMAIN = os.getenv("PRIORITY_DOMAIN")
+
+
+# --- GNEWS API ---
+GNEWS_API_URL = os.getenv("GNEWS_API_URL")
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
+GNEWS_COUNTRY = os.getenv("GNEWS_COUNTRY")
+

@@ -2,9 +2,11 @@
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
+
 from sqlalchemy import Column, Integer, String, Text, DateTime, Index, UUID, Boolean, JSON, func
 # from ..database import Base # Assuming Base is defined correctly elsewhere
-from sqlalchemy.orm import declarative_base # Or import your actual Base
+from sqlalchemy.orm import declarative_base, mapped_column, Mapped  # Or import your actual Base
 
 # Define a Base class for declarative models (if not imported)
 Base = declarative_base()
@@ -58,3 +60,27 @@ class ArticleRecord(Base):
 
     def __repr__(self):
         return f"<ArticleRecord(id={self.id}, article_id='{self.article_id}', title='{self.title[:30]}...')>"
+
+
+class GNewsArticleSummary(Base):
+    """SQLAlchemy model representing the 'gnews_summaries' table."""
+    __tablename__ = "gnews_summaries" # Make sure this matches your actual table name
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(String(1024), unique=True, index=True, nullable=False)
+    image_url: Mapped[Optional[str]] = mapped_column(String(1024))
+    summary: Mapped[Optional[str]] = mapped_column(Text) # Existing summary field
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+
+    # --- Add summary timestamp field ---
+    summary_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True) # Index might be useful for filtering/sorting
+    # --- End Add ---
+
+    source_name: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(255))
+
+    def __repr__(self) -> str:
+        # Corrected class name in repr
+        return f"<GNewsArticleSummary(id={self.id}, title='{self.title[:30]}...', url='{self.url}')>"
