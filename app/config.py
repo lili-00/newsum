@@ -37,6 +37,7 @@ if not GEMINI_API_KEY:
 
 # --- Database Settings ---
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 if not DATABASE_URL:
     logger.error("Configuration FATAL: DATABASE_URL environment variable not set.")
     # Consider raising an error
