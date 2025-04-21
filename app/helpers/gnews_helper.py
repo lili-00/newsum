@@ -33,7 +33,7 @@ async def fetch_headlines_data():
     api_params = {
         "apikey": GNEWS_API_KEY,
         "country": GNEWS_COUNTRY,
-        # "from": from_timestamp_str  # Use the formatted string
+        "from": from_timestamp_str  # Use the formatted string
     }
 
     url = GNEWS_API_URL
