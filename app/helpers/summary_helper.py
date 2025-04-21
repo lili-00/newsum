@@ -538,11 +538,11 @@ def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[
     """Adds the hourly processing job and optionally daily jobs."""
 
     # --- Add Hourly Job ---
-    past_minutes = 10
+    past_minutes = 59
     try:
         scheduler.add_job(
             gnews_hourly_job_wrapper,
-            trigger=CronTrigger(minute=past_minutes, second=45),  # Run at 5 minutes past every hour UTC
+            trigger=CronTrigger(minute=past_minutes, second=15),  # Run at 5 minutes past every hour UTC
             id='hourly_article_processing',
             name='Process Recent Articles Hourly',
             replace_existing=True,
