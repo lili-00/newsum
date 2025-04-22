@@ -79,7 +79,7 @@ async def generate_summary_from_text(text_content: str, title: Optional[str] = N
         return None
 
     prompt = f"""
-    Please provide a concise and neutral summary (around 200-350 words) of the following news article content. Focus on the main points and key information presented in the text.
+    Please provide a concise and neutral summary (around 150 - 250 words) of the following news article content. Focus on the main points and key information presented in the text.
     **Important:** The summary itself is the ONLY respond. Do not include any introductory text, explanations, markdown formatting (like ```json), or code fences before or after the JSON structure itself. The entire response must be only the summary.
 
     Article Title (for context, if available): {title if title else 'N/A'}
