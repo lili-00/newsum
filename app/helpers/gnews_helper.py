@@ -134,7 +134,7 @@ async def analyze_gnews_data() -> List[Dict[str, Any]]:
             # Attempt summarization only if text was successfully extracted
             if article_text_to_summarize:
                 logger.debug(f"Generating summary from extracted text (length={len(article_text_to_summarize)}): {url}")
-                generated_summary = await generate_summary_from_text(article_text_to_summarize, title)  # Assuming returns str or None
+                generated_summary = await generate_summary_from_text(article_text_to_summarize, title, description)  # Assuming returns str or None
                 if generated_summary:
                     logger.info(f"Successfully generated summary for: {url}")
                     summary_to_save = generated_summary

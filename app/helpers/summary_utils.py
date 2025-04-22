@@ -70,7 +70,7 @@ def extract_text_from_html(html_content: str) -> str:
         return ""
 
 
-async def generate_summary_from_text(text_content: str, title: Optional[str] = None) -> Optional[str]:
+async def generate_summary_from_text(text_content: str, title: Optional[str] = None, description: Optional[str] = None) -> Optional[str]:
     """
     Uses Gemini to generate a summary for the provided text content.
     """
@@ -78,11 +78,18 @@ async def generate_summary_from_text(text_content: str, title: Optional[str] = N
         logger.warning("Cannot generate summary: Input text content is empty.")
         return None
 
-    prompt = f"""
-    Please provide a concise and neutral summary (around 150 - 250 words) of the following news article content. Focus on the main points and key information presented in the text.
-    **Important:** The summary itself is the ONLY respond. Do not include any introductory text, explanations, markdown formatting (like ```json), or code fences before or after the JSON structure itself. The entire response must be only the summary.
+    prompt = f""" Please provide a concise and neutral summary (around 150 - 250 words) of the following news article 
+    content. Focus on the main points and key information presented in the text. If the text is about promotion or 
+    advertise paywall block etc, and not related to the news, which means we fetch the wrong information, you need to 
+    provide the description instead. 
+    
+    **Important:** The summary itself is the ONLY respond. Do not include any 
+    introductory text, explanations, markdown formatting (like ```json), or code fences before or after the JSON 
+    structure itself. The entire response must be only the summary.
 
     Article Title (for context, if available): {title if title else 'N/A'}
+    
+    Article Description: {description}
 
     Article Content to Summarize:
     ---
