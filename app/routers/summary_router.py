@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from app.database import get_db_session
 from ..models import ArticleRecord
 from ..models.models import GNewsArticleSummary
-from ..models.summary import ArticleResponse, GNewsSummaryData, GNewsHeadlineResponse
+from ..models.summary import ArticleResponse, GNewsSummaryData, GNewsHeadlineResponse, GNewsHeadlinePreviewResponse
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,19 @@ router = routing.APIRouter(
 )
 
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+# @router.get("/headline-previews", response_model=[GNewsHeadlinePreviewResponse])
+# async def get_gnews_previews(
+#         db: DbSession,
+#         limit: int = Query(
+#             default=8,  # Default to 10 headlines
+#             ge=1,
+#             le=100,  # Allow fetching up to 100
+#             description="Number of latest headlines to fetch (1-100, default is 10)"
+#         )
+# ):
+
 
 
 @router.get("/headlines", response_model=List[GNewsHeadlineResponse])
