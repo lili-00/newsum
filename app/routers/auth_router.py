@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db_session
 from ..models import user
 from ..models.models import User
-from ..models.user import EmailSignupResponse, EmailSignupRequest, EmailSigninRequest, EmailSigninResponse, UserInDB, AppleSignInRequest, AppleSignInResponse, AppleRefreshResponse
+from ..models.user import EmailSignupResponse, EmailSignupRequest, EmailSigninRequest, EmailSigninResponse, UserInDB, AppleSignInRequest, AppleSignInResponse, AppleRefreshResponse, UserRead
 from ..helpers.auth_helper import get_current_active_user
 
 logger = logging.getLogger(__name__)
@@ -140,7 +140,8 @@ async def email_signin(
             detail="Password is incorrect"
         )
 
-    token_payload_data = {"sub": existing_user.email}
+    # Use USER_ID as the token subject
+    token_payload_data = {"sub": str(existing_user.user_id)} 
     access_token = auth_helper.create_access_token(data=token_payload_data)
 
     # Prepare the dictionary for the response
@@ -212,11 +213,8 @@ async def sign_in_with_apple(
             # --- User Not Found (Sign Up) ---
             logger.info(f"No existing user for Apple ID '{verified_apple_user_id}'. Creating new user.")
             
-            # Use email from the request IF PROVIDED AND VERIFIED (Apple doesn't put email in refresh/subsequent id_tokens)
-            # Trust the email from the initial sign-up request data if available.
             signup_email = request_data.email 
             
-            # Optional: Check for email conflict
             if signup_email:
                 email_user = await user_helper.get_user_by_email(db, signup_email)
                 if email_user:
@@ -226,25 +224,31 @@ async def sign_in_with_apple(
                         detail=f"An account with email {signup_email} already exists."
                     )
             
+            # Generate username
+            generated_username = user_helper.generate_random_username()
+            
             # Create new user record
             new_user_data = User(
+                username=generated_username, # Assign username
                 apple_user_id=verified_apple_user_id,
-                apple_refresh_token=apple_refresh_token, # Store the refresh token
-                email=signup_email, # Use email from request
+                apple_refresh_token=apple_refresh_token,
+                email=signup_email, 
                 hashed_password=None,
                 is_active=True
-                # Optionally store first/last name if needed
             )
             db.add(new_user_data)
+            # NOTE: If username collision occurs, flush() will raise IntegrityError
+            # The transaction rollback is handled by the get_db_session dependency.
             await db.flush()
             await db.refresh(new_user_data)
-            logger.info(f"New user created with User ID: {new_user_data.user_id} for Apple ID.")
+            logger.info(f"New user created with User ID: {new_user_data.user_id}, Username: {generated_username} for Apple ID.")
             user_to_return = new_user_data
 
         # 4. Generate Backend Access Token for OUR service
         access_token_expires = timedelta(minutes=auth_helper.ACCESS_TOKEN_EXPIRE_MINUTES)
+        # Use USER_ID as the token subject
         access_token = auth_helper.create_access_token(
-            data={"sub": str(user_to_return.user_id)}, # Use our internal user_id
+            data={"sub": str(user_to_return.user_id)}, 
             expires_delta=access_token_expires
         )
 
@@ -253,7 +257,8 @@ async def sign_in_with_apple(
             access_token=access_token,
             token_type="bearer",
             user_id=user_to_return.user_id,
-            email=user_to_return.email, # Return email stored in our DB
+            username=user_to_return.username, # Added username
+            email=user_to_return.email, 
             is_active=user_to_return.is_active
         )
 
@@ -334,3 +339,16 @@ async def refresh_apple_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred during session refresh."
         )
+
+# === Get Current User Profile ===
+@router.get("/me", response_model=UserRead, status_code=status.HTTP_200_OK)
+async def get_current_user_profile(
+    current_user: Annotated[User, Depends(get_current_active_user)] # Require auth & get user
+):
+    """
+    Fetches the profile information for the currently authenticated user.
+    """
+    logger.info(f"Fetching profile for user ID: {current_user.user_id}")
+    # The dependency already provides the user object loaded from the database.
+    # FastAPI will automatically serialize it using the UserRead response_model.
+    return current_user

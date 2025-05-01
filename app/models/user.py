@@ -53,15 +53,23 @@ class UserUpdate(BaseModel):
 # Inherits from UserBase and adds fields that are present when reading from DB.
 # This is typically the model returned by your API endpoints.
 # Crucially, it EXCLUDES the `hashed_password`.
-class UserRead(UserBase):
+class UserRead(BaseModel):
     """
     Pydantic model for reading/returning User data (e.g., in API responses).
     Includes database-generated fields like user_id and created_at.
     Excludes sensitive fields like hashed_password.
+    Email is OPTIONAL here to handle Apple Sign In users without email.
     """
     user_id: uuid.UUID
+    username: str
+    email: Optional[EmailStr] = None
+    is_active: bool
     created_at: datetime
     # Note: hashed_password from the SQLAlchemy model is intentionally omitted here for security.
+
+    model_config = ConfigDict(
+        from_attributes=True
+    )
 
 
 # --- Optional: Internal Model (if needed) ---
@@ -93,6 +101,7 @@ class EmailSignupRequest(BaseModel):
 
 class EmailSignupResponse(BaseModel):
     user_id: uuid.UUID
+    username: str
     email: EmailStr
     is_active: bool
     created_at: datetime
@@ -135,8 +144,9 @@ class AppleSignInResponse(BaseModel):
     """Response sent back after successful Apple Sign In/Sign Up."""
     access_token: str
     token_type: str = "bearer"
-    user_id: uuid.UUID # Our internal user ID
-    email: Optional[EmailStr] # Email stored in our DB
+    user_id: uuid.UUID
+    username: str
+    email: Optional[EmailStr]
     is_active: bool
 
     model_config = ConfigDict(

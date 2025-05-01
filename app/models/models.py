@@ -15,6 +15,7 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
     user_id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    username = Column(String(50), unique=False, nullable=False, index=True) # Added username
     email = Column(String(255), unique=True, nullable=True, index=True) # Allow null for Apple-only users
     hashed_password = Column(String(255), nullable=True)
     apple_user_id = Column(String(255), unique=True, nullable=True, index=True)
@@ -23,7 +24,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
     def __repr__(self):
-        return f'<User {self.user_id} {self.email or self.apple_user_id}>'
+        return f'<User {self.user_id} {self.username}>' # Use username in repr
 
 
 # --- Corrected ArticleRecord Model (Merged) ---
