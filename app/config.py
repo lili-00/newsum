@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 
 # Configure logging for this module
@@ -24,12 +24,20 @@ if not GEMINI_API_KEY:
      logger.error("Configuration FATAL: GEMINI_API_KEY environment variable not set.")
      # Consider raising an error or handling appropriately in app startup
 
-# --- Database Settings ---
-DATABASE_URL = os.getenv("DATABASE_URL")
+# --- Environment Setting --- 
+# Controls which database config to use ('local' or 'production')
+ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production").lower()
+if ENVIRONMENT not in ['local', 'production']:
+    logger.warning(f"Invalid ENVIRONMENT '{ENVIRONMENT}' specified. Defaulting to 'production'.")
+    ENVIRONMENT = 'production'
+logger.info(f"Configuration: Running in '{ENVIRONMENT}' environment.")
 
-if not DATABASE_URL:
-    logger.error("Configuration FATAL: DATABASE_URL environment variable not set.")
-    # Consider raising an error
+# --- Database Settings (Relevant variables read based on ENVIRONMENT later) ---
+DATABASE_URL = os.getenv("DATABASE_URL") # Used for 'local'
+DB_USER = os.getenv("DB_USER") # Used for 'production' (and maybe 'local' if DATABASE_URL doesn't contain it)
+DB_PASS = os.getenv("DB_PASS") # Used for 'production' (and maybe 'local')
+DB_NAME = os.getenv("DB_NAME") # Used for 'production' (and maybe 'local')
+INSTANCE_CONNECTION_NAME = os.getenv("INSTANCE_CONNECTION_NAME") # Used for 'production'
 
 # --- JWT Settings ---
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change_this_super_secret_key_in_production")
@@ -47,4 +55,23 @@ PRIORITY_DOMAIN = os.getenv("PRIORITY_DOMAIN")
 GNEWS_API_URL = os.getenv("GNEWS_API_URL")
 GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
 GNEWS_COUNTRY = os.getenv("GNEWS_COUNTRY")
+
+# --- Apple Sign In --- 
+APPLE_BUNDLE_ID: Optional[str] = os.getenv("APPLE_BUNDLE_ID")
+APPLE_TEAM_ID: Optional[str] = os.getenv("APPLE_TEAM_ID")
+APPLE_KEY_ID: Optional[str] = os.getenv("APPLE_KEY_ID")
+APPLE_PRIVATE_KEY: Optional[str] = os.getenv("APPLE_PRIVATE_KEY")
+
+# Validate required Apple credentials for token exchange/refresh
+apple_signin_configured = True
+if not all([APPLE_BUNDLE_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY]):
+    logger.warning(
+        "One or more Apple Sign In credentials (BUNDLE_ID, TEAM_ID, KEY_ID, PRIVATE_KEY) are missing. "
+        "Token exchange and refresh will fail."
+    )
+    apple_signin_configured = False # Flag that full config is missing
+
+# Note: Removed the simple APPLE_BUNDLE_ID check as the combined check above is more comprehensive
+# if not APPLE_BUNDLE_ID:
+#     logger.warning("APPLE_BUNDLE_ID environment variable not set. Apple Sign In verification will fail.")
 

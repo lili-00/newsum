@@ -25,5 +25,13 @@ async def create_db_user(db: AsyncSession, user: user.EmailSignupRequest) -> mod
     await db.refresh(db_user)
     return db_user
 
+
+async def get_user_by_apple_id(db: AsyncSession, apple_id: str) -> models.User | None:
+    """Fetches a user from the database by their Apple User ID."""
+    result = await db.execute(
+        select(models.User).where(models.User.apple_user_id == apple_id)
+    )
+    return result.scalar_one_or_none()
+
 # Add CRUD functions for Summaries here later if needed
 # e.g., get_summary_by_date_period, create_summary, etc.

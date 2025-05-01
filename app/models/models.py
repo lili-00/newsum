@@ -15,13 +15,15 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
     user_id = Column(UUID, primary_key=True, default=uuid.uuid4)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
+    email = Column(String(255), unique=True, nullable=True, index=True) # Allow null for Apple-only users
+    hashed_password = Column(String(255), nullable=True)
+    apple_user_id = Column(String(255), unique=True, nullable=True, index=True)
+    apple_refresh_token = Column(Text, nullable=True) # Store Apple Refresh Token (Encrypted Recommended)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.utcnow()) # Use utcnow for consistency
     is_active = Column(Boolean, default=True)
 
     def __repr__(self):
-        return f'<User {self.user_id} {self.email}>'
+        return f'<User {self.user_id} {self.email or self.apple_user_id}>'
 
 
 # --- Corrected ArticleRecord Model (Merged) ---

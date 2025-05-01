@@ -116,3 +116,35 @@ class EmailSigninRequest(BaseModel):
 
 class EmailSigninResponse(BaseModel):
     token_data: TokenData
+
+
+# --- Sign in with Apple Models ---
+
+class AppleSignInRequest(BaseModel):
+    """Data received from iOS app after Apple Sign In success."""
+    authorization_code: str = Field(..., description="The authorization code from Apple.")
+    # identity_token: str = Field(..., description="The JWT identity token from Apple.") # Optional if verifying id_token from token exchange
+    apple_user_id: Optional[str] = Field(None, description="The stable user identifier from Apple (optional, primarily for reference).")
+    email: Optional[EmailStr] = Field(None, description="Email provided by Apple (often only on first sign-in).")
+    first_name: Optional[str] = Field(None, description="First name provided by Apple (often only on first sign-in).")
+    last_name: Optional[str] = Field(None, description="Last name provided by Apple (often only on first sign-in).")
+    # Nonce can be added here if needed for validation during token exchange
+    # nonce: Optional[str] = None 
+
+class AppleSignInResponse(BaseModel):
+    """Response sent back after successful Apple Sign In/Sign Up."""
+    access_token: str
+    token_type: str = "bearer"
+    user_id: uuid.UUID # Our internal user ID
+    email: Optional[EmailStr] # Email stored in our DB
+    is_active: bool
+
+    model_config = ConfigDict(
+        from_attributes=True
+    )
+
+
+class AppleRefreshResponse(BaseModel):
+    """Response containing a new backend access token after Apple refresh validation."""
+    access_token: str
+    token_type: str = "bearer"
