@@ -15,17 +15,6 @@ if not logger.hasHandlers():
 load_dotenv()
 logger.info("Configuration: Loading environment variables.")
 
-# --- Scheduler Settings ---
-
-# Load target timezones string directly from environment variable
-# The consuming module (e.g., scheduler) will handle parsing and defaults.
-TARGET_TIMEZONES_STR = os.getenv("TARGET_TIMEZONES") # Reads the raw string or None
-
-if TARGET_TIMEZONES_STR:
-    logger.info(f"Loaded TARGET_TIMEZONES string from environment: '{TARGET_TIMEZONES_STR}'")
-else:
-    logger.warning("TARGET_TIMEZONES environment variable not set or empty. Default will be applied by consumer if needed.")
-
 
 # --- Gemini Settings ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
