@@ -60,10 +60,22 @@ async def fetch_latest_news_data():
     Fetch latest news from top resources using configured parameters.
     (Removed hours parameter)
     """
+    # 1. Get the current time in UTC
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+
+    # 2. Calculate the time 12 hours ago
+    twelve_hours_ago_utc = now_utc - timedelta(hours=12)
+
+    # 3. Format the time in YYYY-MM-DDTHH:MM:SSZ format
+    #    strftime formats the date and time, then we append 'Z' for UTC.
+    from_time_str = twelve_hours_ago_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # 4. Construct the API parameters dictionary
     api_params = {
         "apikey": config.NEWS_API_KEY,
         "country": config.NEWS_COUNTRY,
         "prioritydomain": config.PRIORITY_DOMAIN,
+        "from": from_time_str,  # Add the dynamically calculated 'from' time
     }
     url = config.NEWS_API_URL  # Ensure this is set in your config
 
@@ -542,7 +554,7 @@ def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[
     try:
         scheduler.add_job(
             gnews_hourly_job_wrapper,
-            trigger=CronTrigger(hour=4, minute=past_minutes, second=15),  # Run at 5 minutes past every hour UTC
+            trigger=CronTrigger(hour=12, minute=past_minutes), # run every 12 hours
             id='hourly_article_processing',
             name='Process Recent Articles Hourly',
             replace_existing=True,
