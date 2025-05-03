@@ -546,19 +546,30 @@ async def hourly_job_wrapper():
 sum_scheduler = AsyncIOScheduler(timezone=timezone.utc)  # Use UTC for scheduler internal timezone
 
 
-def add_jobs_to_scheduler(scheduler: AsyncIOScheduler, timezones: Optional[List[str]] = None):
+def add_jobs_to_scheduler(scheduler: AsyncIOScheduler):
     """Adds the hourly processing job and optionally daily jobs."""
+
+    # --- Add Job (8 AM / 8 PM Eastern) ---
+    target_timezone_str = 'America/New_York'  # Handles EST/EDT automatically
 
     # --- Add Hourly Job ---
     past_minutes = 59
     try:
+        # Validate timezone
+        try:
+            tz = ZoneInfo(target_timezone_str)
+        except ZoneInfoNotFoundError:
+            logger.error(f"Invalid timezone specified: {target_timezone_str}")
+            return  # Or raise an error
+
         scheduler.add_job(
             gnews_hourly_job_wrapper,
-            trigger=CronTrigger(hour=12, minute=past_minutes), # run every 12 hours
+            trigger=CronTrigger(hour='7, 19', minute=past_minutes), # run every 12 hours
             id='hourly_article_processing',
             name='Process Recent Articles Hourly',
             replace_existing=True,
-            misfire_grace_time=600  # Allow 10 minutes grace
+            misfire_grace_time=600,  # Allow 10 minutes grace
+            timezone=target_timezone_str
         )
         logger.info(f"Successfully added HOURLY article processing job (runs HH:{past_minutes} UTC).")
     except Exception as e:
