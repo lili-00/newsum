@@ -76,6 +76,7 @@ async def fetch_latest_news_data():
         "country": config.NEWS_COUNTRY,
         "prioritydomain": config.PRIORITY_DOMAIN,
         "from": from_time_str,  # Add the dynamically calculated 'from' time
+        "to": now_utc
     }
     url = config.NEWS_API_URL  # Ensure this is set in your config
 
