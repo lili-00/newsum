@@ -138,6 +138,12 @@ class GNewsHeadlineResponse(BaseModel):
 
 
 class GNewsHeadlinePreviewResponse(BaseModel):
+    id: int
     title: str
     source_name: str
     published_at: datetime
+    image_url: Optional[HttpUrl] = None
+
+    model_config = ConfigDict(
+        from_attributes=True  # Allows creating model from ORM object attributes
+    )

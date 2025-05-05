@@ -28,17 +28,20 @@ AsyncSessionFactory = None
 
 # === Log the environment value right before the conditional ===
 logger.info(f"DATABASE_CONFIG: Checking environment. config.ENVIRONMENT = '{config.ENVIRONMENT}'")
+logger.info(f"DATABASE_CONFIG: Checking presence of config.DATABASE_URL: {bool(config.DATABASE_URL)}")
 
-# === Environment-Specific Configuration ===
-
-if config.ENVIRONMENT == 'local':
+# === Environment-Specific Configuration - MODIFIED LOGIC ===
+# Prioritize DATABASE_URL for local setup, regardless of ENVIRONMENT value
+if config.DATABASE_URL and config.ENVIRONMENT == 'local': # Check both for clarity, but DATABASE_URL takes precedence
+    logger.info("DATABASE_CONFIG: Entering LOCAL configuration block (DATABASE_URL is set).")
     logger.info("--- Configuring for LOCAL environment (DATABASE_URL) --- ")
     DATABASE_URL_LOCAL = config.DATABASE_URL # Use DATABASE_URL for local
-    if not DATABASE_URL_LOCAL:
-        logger.error("FATAL: DATABASE_URL environment variable not set for local environment.")
-        raise ValueError("DATABASE_URL is required for local environment.")
+    # if not DATABASE_URL_LOCAL: # Already checked above
+    #     logger.error("FATAL: DATABASE_URL environment variable not set for local environment.")
+    #     raise ValueError("DATABASE_URL is required for local environment.")
 
     try:
+        logger.info(f"DATABASE_CONFIG: Attempting to create LOCAL engine with URL: {DATABASE_URL_LOCAL[:20]}...")
         # Assume DATABASE_URL contains all necessary info (user, pass, host, db)
         engine = create_async_engine(DATABASE_URL_LOCAL, echo=False, future=True, pool_recycle=1800)
         AsyncSessionFactory = sessionmaker(
@@ -52,6 +55,7 @@ if config.ENVIRONMENT == 'local':
         raise
 
 elif config.ENVIRONMENT == 'production':
+    logger.info("DATABASE_CONFIG: Entering PRODUCTION configuration block (ENVIRONMENT=production and DATABASE_URL not set/prioritized).")
     logger.info("--- Configuring for PRODUCTION environment (Google Cloud SQL Connector + ADC) ---")
     # --- Load Production Environment Variables --- 
     db_user = config.DB_USER
@@ -77,12 +81,14 @@ elif config.ENVIRONMENT == 'production':
 
     # --- Set up Cloud SQL Connector (using ADC) --- 
     try:
+        logger.info("DATABASE_CONFIG: Attempting to initialize PRODUCTION connector.")
         # Initialize connector without explicit credentials
         # It will use Application Default Credentials when running on GCP
         connector = Connector()
         logger.info("Cloud SQL Connector initialized successfully for PRODUCTION environment (using ADC).")
 
         async def getconn_prod() -> asyncpg.Connection:
+            logger.info("DATABASE_CONFIG: Attempting PRODUCTION connection via getconn_prod.")
             # The connector instance handles authentication automatically
             conn = await connector.connect_async(
                 instance_connection_name, "asyncpg", user=db_user,
@@ -106,8 +112,8 @@ elif config.ENVIRONMENT == 'production':
         raise
 
 else:
-    # This case should ideally be caught by config.py, but handle defensively
-    error_message = f"FATAL: Unexpected ENVIRONMENT value in database.py: '{config.ENVIRONMENT}'. Should be 'local' or 'production'."
+    # This case means ENVIRONMENT was not 'production', and DATABASE_URL was also not set.
+    error_message = f"FATAL: Database configuration failed. ENVIRONMENT is '{config.ENVIRONMENT}' but DATABASE_URL is not set."
     logger.error(error_message)
     raise ValueError(error_message)
 
@@ -118,6 +124,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     Uses session.begin() for automatic commit/rollback.
     """
     if not AsyncSessionFactory:
+         logger.error("DATABASE_CONFIG: get_db_session called but AsyncSessionFactory is None!")
          raise RuntimeError("Database session factory not initialized. Check environment configuration.")
 
     session: AsyncSession | None = None

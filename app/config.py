@@ -26,7 +26,7 @@ if not GEMINI_API_KEY:
 
 # --- Environment Setting --- 
 # Controls which database config to use ('local' or 'production')
-ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production").lower()
+ENVIRONMENT: str = os.getenv("ENVIRONMENT").lower()
 if ENVIRONMENT not in ['local', 'production']:
     logger.warning(f"Invalid ENVIRONMENT '{ENVIRONMENT}' specified. Defaulting to 'production'.")
     ENVIRONMENT = 'production'
