@@ -119,6 +119,7 @@ class GNewsHeadlineResponse(BaseModel):
     Pydantic model for API responses containing data from GNewsArticleSummary.
     """
     # Match fields from GNewsArticleSummary SQLAlchemy model
+    id: int
     title: str
     description: Optional[str] = None
     # Pydantic validates these as URLs, reading from the string fields in the ORM object
